@@ -1,0 +1,38 @@
+[project]
+name = "agy-acpbox"
+version = "0.1.0"
+description = "ACP (Agent Client Protocol) to OpenAI-Compatible API Bridge"
+readme = "README.md"
+authors = [
+    { name = "Shareef", email = "shareef.banjar@gmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.162.2",
+    "httpx>=0.28.1",
+    "openai>=1.30.0",
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.2.0",
+    "typer>=0.12.0",
+    "uvicorn>=0.54.0",
+]
+
+[project.scripts]
+agy-acpbox = "acpbox.cli:app"
+acpbox = "acpbox.cli:app"
+
+[build-system]
+requires = ["uv_build>=0.8.17,<0.9.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "respx>=0.21.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
