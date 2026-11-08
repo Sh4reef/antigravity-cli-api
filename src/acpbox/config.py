@@ -22,3 +22,6 @@ class Settings(BaseSettings):
     workspace: Optional[str] = Field(default=None, description="Primary workspace root directory for agy acp")
     add_dir: List[str] = Field(default_factory=list, description="Workspace directories to include")
     log_level: str = Field(default="INFO", description="Server log level")
+    pid_file: Optional[str] = Field(default=None, description="Path to PID file for background mode")
+    log_file: Optional[str] = Field(default=None, description="Path to log file for background mode")
+    background: bool = Field(default=False, description="Run server in background daemon mode")

@@ -1,17 +1,69 @@
 """Command Line Interface for agy-acpbox: OpenAI-Compatible API Gateway for agy acp."""
 
+import atexit
+import os
+from pathlib import Path
 from typing import List, Optional
 import typer
 import uvicorn
 
+from acpbox.autostart import (
+    get_service_status,
+    install_service,
+    uninstall_service,
+)
 from acpbox.backend import AgyACPBackend
 from acpbox.config import Settings
+from acpbox.daemon import (
+    check_status,
+    get_default_log_path,
+    get_default_pid_path,
+    remove_pid,
+    start_daemon,
+    stop_daemon,
+    write_pid,
+)
 from acpbox.server import create_app
 
 app = typer.Typer(
     help="agy-acpbox: OpenAI-Compatible API Gateway for Antigravity (agy acp)",
     add_completion=False,
 )
+
+
+def _build_forward_args(
+    host: str,
+    port: int,
+    disable_telemetry: bool,
+    dangerously_skip_permissions: bool,
+    agent: Optional[str],
+    workspace: Optional[str],
+    add_dir: List[str],
+    log_level: str,
+    pid_file: Optional[Path],
+    log_file: Optional[Path],
+) -> List[str]:
+    """Build list of CLI arguments to forward to background worker or autostart service."""
+    args = [
+        "--host", host,
+        "--port", str(port),
+        "--log-level", log_level,
+    ]
+    if not disable_telemetry:
+        args.append("--no-disable-telemetry")
+    if not dangerously_skip_permissions:
+        args.append("--no-dangerously-skip-permissions")
+    if agent:
+        args.extend(["--agent", agent])
+    if workspace:
+        args.extend(["--workspace", workspace])
+    for d in add_dir:
+        args.extend(["--add-dir", d])
+    if pid_file:
+        args.extend(["--pid-file", str(pid_file)])
+    if log_file:
+        args.extend(["--log-file", str(log_file)])
+    return args
 
 
 @app.command()
@@ -30,8 +82,136 @@ def main(
     ),
     add_dir: List[str] = typer.Option([], "--add-dir", help="Additional workspace directories to include"),
     log_level: str = typer.Option("info", "--log-level", help="Log level (debug, info, warning, error)"),
+    background: bool = typer.Option(
+        False, "-d", "-b", "--background", "--daemon", help="Run server in the background (detached process)"
+    ),
+    stop: bool = typer.Option(False, "--stop", help="Stop running background server"),
+    status: bool = typer.Option(False, "--status", help="Check status of background server"),
+    install_autostart: bool = typer.Option(
+        False, "--install-autostart", "--autostart", help="Install and enable automatic startup on boot/login"
+    ),
+    uninstall_autostart: bool = typer.Option(
+        False, "--uninstall-autostart", help="Uninstall and disable automatic startup service"
+    ),
+    autostart_status: bool = typer.Option(
+        False, "--autostart-status", help="Check auto-start service status"
+    ),
+    pid_file: Optional[Path] = typer.Option(
+        None, "--pid-file", help="PID file path for background process"
+    ),
+    log_file: Optional[Path] = typer.Option(
+        None, "--log-file", help="Log file path for background process"
+    ),
+    worker: bool = typer.Option(
+        False, "--worker", hidden=True, help="Internal worker flag for background daemon"
+    ),
 ):
     """Start an OpenAI-compatible HTTP server exposing 'agy acp' on /v1/chat/completions."""
+    effective_pid_path = pid_file or get_default_pid_path()
+    effective_log_path = log_file or get_default_log_path()
+
+    # Mode 1: Stop running daemon
+    if stop:
+        success, msg = stop_daemon(effective_pid_path)
+        if success:
+            typer.echo(f"[OK] {msg}")
+            raise typer.Exit(code=0)
+        else:
+            typer.echo(f"[ERROR] {msg}", err=True)
+            raise typer.Exit(code=1)
+
+    # Mode 2: Status check
+    if status:
+        info = check_status(effective_pid_path, host=host, port=port)
+        if info["running"]:
+            typer.echo(f"[RUNNING] agy-acpbox is active (PID: {info['pid']})")
+            typer.echo(f"          Endpoint: {info.get('endpoint')}")
+            typer.echo(f"          PID File: {info.get('pid_file')}")
+            typer.echo(f"          Health:   {'healthy' if info.get('healthy') else 'unresponsive'}")
+            raise typer.Exit(code=0)
+        else:
+            typer.echo(f"[STOPPED] agy-acpbox is not running ({info.get('status')})")
+            if "message" in info:
+                typer.echo(f"          {info['message']}")
+            raise typer.Exit(code=1)
+
+    # Mode 3: Install autostart service
+    if install_autostart:
+        forward_args = _build_forward_args(
+            host=host,
+            port=port,
+            disable_telemetry=disable_telemetry,
+            dangerously_skip_permissions=dangerously_skip_permissions,
+            agent=agent,
+            workspace=workspace,
+            add_dir=add_dir,
+            log_level=log_level,
+            pid_file=pid_file,
+            log_file=log_file,
+        )
+        success, msg = install_service(forward_args, effective_log_path)
+        if success:
+            typer.echo(f"[OK] {msg}")
+            raise typer.Exit(code=0)
+        else:
+            typer.echo(f"[ERROR] {msg}", err=True)
+            raise typer.Exit(code=1)
+
+    # Mode 4: Uninstall autostart service
+    if uninstall_autostart:
+        success, msg = uninstall_service()
+        if success:
+            typer.echo(f"[OK] {msg}")
+            raise typer.Exit(code=0)
+        else:
+            typer.echo(f"[ERROR] {msg}", err=True)
+            raise typer.Exit(code=1)
+
+    # Mode 5: Autostart status check
+    if autostart_status:
+        st = get_service_status()
+        typer.echo(f"Platform:  {st['platform']} ({st['mechanism']})")
+        typer.echo(f"Installed: {st['installed']}")
+        typer.echo(f"Active:    {st['loaded']}")
+        if st["path"]:
+            typer.echo(f"Path:      {st['path']}")
+        raise typer.Exit(code=0 if st["installed"] else 1)
+
+    # Mode 6: Background daemon spawn
+    if background:
+        forward_args = _build_forward_args(
+            host=host,
+            port=port,
+            disable_telemetry=disable_telemetry,
+            dangerously_skip_permissions=dangerously_skip_permissions,
+            agent=agent,
+            workspace=workspace,
+            add_dir=add_dir,
+            log_level=log_level,
+            pid_file=pid_file,
+            log_file=log_file,
+        )
+        typer.echo(f"Starting agy-acpbox in background on http://{host}:{port}...")
+        success, msg, pid = start_daemon(
+            cmd_args=forward_args,
+            log_file=effective_log_path,
+            pid_file=effective_pid_path,
+            host=host,
+            port=port,
+        )
+        if success:
+            typer.echo(f"[OK] {msg}")
+            typer.echo(f"     Endpoint: http://{host}:{port}")
+            typer.echo(f"     PID File: {effective_pid_path}")
+            typer.echo(f"     Logs:     {effective_log_path}")
+            typer.echo("\nTo check status: uv run agy-acpbox --status")
+            typer.echo("To stop server:  uv run agy-acpbox --stop")
+            raise typer.Exit(code=0)
+        else:
+            typer.echo(f"[ERROR] {msg}", err=True)
+            raise typer.Exit(code=1)
+
+    # Mode 7: Foreground Server (or internal worker process)
     settings = Settings(
         host=host,
         port=port,
@@ -41,7 +221,15 @@ def main(
         workspace=workspace,
         add_dir=add_dir,
         log_level=log_level,
+        pid_file=str(effective_pid_path),
+        log_file=str(effective_log_path),
+        background=worker,
     )
+
+    if worker:
+        # Write PID and register exit cleanup
+        write_pid(effective_pid_path, os.getpid())
+        atexit.register(remove_pid, effective_pid_path)
 
     backend = AgyACPBackend(
         cwd=settings.workspace,
@@ -56,7 +244,11 @@ def main(
     typer.echo(f"Telemetry disabled: {settings.disable_telemetry} | Auto-approve permissions: {settings.dangerously_skip_permissions}")
     typer.echo(f"Endpoints: /v1/chat/completions , /v1/models , /health")
 
-    uvicorn.run(api_app, host=settings.host, port=settings.port, log_level=settings.log_level.lower())
+    try:
+        uvicorn.run(api_app, host=settings.host, port=settings.port, log_level=settings.log_level.lower())
+    finally:
+        if worker:
+            remove_pid(effective_pid_path)
 
 
 if __name__ == "__main__":

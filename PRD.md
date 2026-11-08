@@ -33,6 +33,7 @@ Furthermore, users require privacy and isolation guarantees—specifically requi
 3. **Real-Time Streaming & Thought Separation:** Stream text tokens incrementally with sub-20ms latency and extract reasoning chunks into `delta.reasoning_content` (DeepSeek/OpenAI format).
 4. **Autonomous Handshake Management:** Automatically execute ACP `initialize` and `session/new` handshakes on server startup, managing session persistence across queries.
 5. **Zero-Configuration Developer Experience:** Single-command startup via `uv run agy-acpbox` with sensible defaults (`http://127.0.0.1:8000`).
+6. **Daemon & Reboot Resilience:** Detached background daemon mode (`-d`, `--background`, `--stop`, `--status`) and reboot auto-start service installation without sudo (macOS `launchd` / Linux `systemd --user`).
 
 ### 2.2 Success Metrics
 - **Streaming Latency:** First token response < 200ms after `agy acp` outputs initial token.

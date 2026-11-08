@@ -41,8 +41,38 @@ uv sync
 Start the gateway server on port 8000 (telemetry disabled by default):
 
 ```bash
-uv run agy-acpbox serve --host 127.0.0.1 --port 8000 --disable-telemetry --dangerously-skip-permissions
+# Foreground execution
+uv run agy-acpbox --host 127.0.0.1 --port 8000
+
+# Background execution (detached daemon)
+uv run agy-acpbox -d --port 8000
+
+# Check running daemon status
+uv run agy-acpbox --status
+
+# Stop background daemon
+uv run agy-acpbox --stop
 ```
+
+#### Run Automatically on Reboot (macOS LaunchAgent / Linux systemd)
+
+Run `agy-acpbox` as a managed user-level service that automatically starts on system reboot:
+
+```bash
+# Install and enable auto-start on boot/login
+uv run agy-acpbox --install-autostart --port 8000
+
+# Check auto-start service status
+uv run agy-acpbox --autostart-status
+
+# Remove auto-start service
+uv run agy-acpbox --uninstall-autostart
+```
+> [!NOTE]
+> Auto-start runs entirely in user-space (no `sudo` required):
+> - **macOS:** Uses `launchd` via `~/Library/LaunchAgents/com.antigravity.agy-acpbox.plist`
+> - **Linux:** Uses `systemd --user` via `~/.config/systemd/user/agy-acpbox.service`
+
 
 Now any OpenAI client can connect to `http://127.0.0.1:8000/v1`:
 
