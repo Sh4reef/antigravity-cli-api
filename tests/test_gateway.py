@@ -49,7 +49,7 @@ async def test_chat_completions_non_streaming():
     """Verifies POST /v1/chat/completions returns standard OpenAI JSON."""
     backend = AgyACPBackend()
 
-    async def mock_stream_turn(prompt):
+    async def mock_stream_turn(prompt, model=None):
         yield ("Hello ", None, None)
         yield ("world from agy!", None, None)
         yield (None, None, {"prompt_tokens": 12, "completion_tokens": 5, "total_tokens": 17})
@@ -77,7 +77,7 @@ async def test_chat_completions_streaming():
     """Verifies POST /v1/chat/completions with stream=True returns SSE stream."""
     backend = AgyACPBackend()
 
-    async def mock_stream_turn(prompt):
+    async def mock_stream_turn(prompt, model=None):
         yield (None, "Thinking about greeting...", None)
         yield ("Hello ", None, None)
         yield ("there!", None, None)
@@ -114,3 +114,67 @@ async def test_chat_completions_streaming():
 
         assert assembled_content == "Hello there!"
         assert assembled_thought == "Thinking about greeting..."
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_forwards_model():
+    """Verifies that requested model is forwarded to backend.stream_turn for both streaming and non-streaming."""
+    backend = AgyACPBackend()
+    received_models = []
+
+    async def mock_stream_turn(prompt, model=None):
+        received_models.append(model)
+        yield ("Hello", None, None)
+
+    backend.stream_turn = mock_stream_turn
+
+    app = create_app(backend=backend)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        # Non-streaming
+        res1 = await ac.post(
+            "/v1/chat/completions",
+            json={"model": "gemini-3.8-flash-medium", "messages": [{"role": "user", "content": "hi"}], "stream": False},
+        )
+        assert res1.status_code == 200
+
+        # Streaming
+        res2 = await ac.post(
+            "/v1/chat/completions",
+            json={"model": "claude-sonnet-4-6", "messages": [{"role": "user", "content": "hi"}], "stream": True},
+        )
+        assert res2.status_code == 200
+
+    assert received_models == ["gemini-3.8-flash-medium", "claude-sonnet-4-6"]
+
+
+@pytest.mark.asyncio
+async def test_backend_ensure_model_switches_when_different():
+    """Verifies that _ensure_model issues session/set_model RPC only when model changes."""
+    backend = AgyACPBackend()
+    backend.session_id = "test-session-123"
+    backend.current_model = "gemini-3.8-flash-high"
+
+    sent_requests = []
+
+    async def mock_send_json(data):
+        sent_requests.append(data)
+
+    async def mock_read_json_response(req_id):
+        return {"jsonrpc": "2.0", "id": req_id, "result": {}}
+
+    backend._send_json = mock_send_json
+    backend._read_json_response = mock_read_json_response
+
+    # Same model or default -> no RPC
+    await backend._ensure_model("gemini-3.8-flash-high")
+    await backend._ensure_model("default")
+    await backend._ensure_model(None)
+    assert len(sent_requests) == 0
+
+    # New model -> sends session/set_model
+    await backend._ensure_model("gemini-3.8-flash-medium")
+    assert len(sent_requests) == 1
+    assert sent_requests[0]["method"] == "session/set_model"
+    assert sent_requests[0]["params"]["modelId"] == "gemini-3.8-flash-medium"
+    assert sent_requests[0]["params"]["sessionId"] == "test-session-123"
+    assert backend.current_model == "gemini-3.8-flash-medium"

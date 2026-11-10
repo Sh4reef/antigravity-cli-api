@@ -39,6 +39,7 @@ class AgyACPBackend:
 
         self.proc: Optional[asyncio.subprocess.Process] = None
         self.session_id: Optional[str] = None
+        self.current_model: Optional[str] = None
         self.available_models: List[str] = [
             "gemini-3.8-flash-high",
             "gemini-3.8-flash-medium",
@@ -101,11 +102,31 @@ class AgyACPBackend:
 
         result = new_res.get("result", {})
         self.session_id = result.get("sessionId")
+        self.current_model = result.get("models", {}).get("currentModelId")
 
         # Extract available models if provided by agy acp
         models_data = result.get("models", {}).get("availableModels", [])
         if models_data:
             self.available_models = [m.get("modelId") for m in models_data if "modelId" in m]
+
+    async def _ensure_model(self, model: Optional[str]) -> None:
+        """Switches the ACP session model if different from the currently active model."""
+        if not model or model == "default" or model == self.current_model:
+            return
+        self._req_counter += 1
+        req_id = self._req_counter
+        await self._send_json({
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "method": "session/set_model",
+            "params": {
+                "sessionId": self.session_id,
+                "modelId": model,
+            },
+        })
+        res = await self._read_json_response(req_id)
+        if "error" not in res:
+            self.current_model = model
 
     async def _send_json(self, data: Dict[str, Any]) -> None:
         if not self.proc or not self.proc.stdin:
@@ -168,7 +189,7 @@ class AgyACPBackend:
             await self._send_json({"jsonrpc": "2.0", "id": req_id, "result": {}})
 
     async def stream_turn(
-        self, prompt_text: str
+        self, prompt_text: str, model: Optional[str] = None
     ) -> AsyncGenerator[Tuple[Optional[str], Optional[str], Optional[Dict[str, int]]], None]:
         """
         Submits prompt to agy acp and yields tuples of:
@@ -177,6 +198,9 @@ class AgyACPBackend:
         async with self._lock:
             if not self.proc or self.proc.returncode is not None:
                 await self.start()
+
+            if model:
+                await self._ensure_model(model)
 
             self._req_counter += 1
             turn_req_id = self._req_counter
@@ -254,3 +278,5 @@ class AgyACPBackend:
                 except Exception:
                     pass
             self.proc = None
+            self.session_id = None
+            self.current_model = None

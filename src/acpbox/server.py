@@ -100,7 +100,7 @@ def create_app(backend: Optional[AgyACPBackend] = None) -> FastAPI:
                 )
                 yield f"data: {first_chunk.model_dump_json()}\n\n"
 
-                async for text, thought, usage in app_backend.stream_turn(full_prompt):
+                async for text, thought, usage in app_backend.stream_turn(full_prompt, model=request.model):
                     if thought:
                         thought_chunk = ChatCompletionChunk(
                             id=req_id,
@@ -135,7 +135,7 @@ def create_app(backend: Optional[AgyACPBackend] = None) -> FastAPI:
         accumulated_text = []
         final_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
-        async for text, thought, usage in app_backend.stream_turn(full_prompt):
+        async for text, thought, usage in app_backend.stream_turn(full_prompt, model=request.model):
             if text:
                 accumulated_text.append(text)
             if usage:
