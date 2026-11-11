@@ -45,6 +45,7 @@ class OpenAIHttpProvider:
         self.headers = headers
 
         self.client: Optional[httpx.AsyncClient] = None
+        self.has_fixed_models: bool = bool(config.models)
         self.available_models: List[str] = list(config.models)
 
     async def start(self) -> None:
@@ -56,7 +57,7 @@ class OpenAIHttpProvider:
                 timeout=self.timeout,
             )
 
-        if self.discover_models:
+        if not self.has_fixed_models and self.discover_models:
             try:
                 await self.get_models()
             except Exception:
@@ -78,9 +79,9 @@ class OpenAIHttpProvider:
         return self.client
 
     async def get_models(self) -> List[ModelItem]:
-        """Discovers models from upstream GET /models or returns configured models."""
+        """Discovers models from upstream GET /models or returns configured fixed models."""
         client = self._ensure_client()
-        if self.discover_models:
+        if not self.has_fixed_models and self.discover_models:
             try:
                 # Try relative paths
                 resp = await client.get("/models")

@@ -115,3 +115,16 @@ async def test_acp_provider_health():
     assert st.provider_type == "acp"
     assert st.healthy is False
     assert st.status == "stopped"
+
+
+def test_acp_provider_fixed_models_flag():
+    """Verify has_fixed_models is True when models is non-empty, False when empty."""
+    cfg_fixed = ACPProviderConfig(id="agy", models=["gemini-3.8-flash-high"])
+    provider_fixed = GenericACPProvider(cfg_fixed)
+    assert provider_fixed.has_fixed_models is True
+    assert provider_fixed.available_models == ["gemini-3.8-flash-high"]
+
+    cfg_dynamic = ACPProviderConfig(id="agy", models=[])
+    provider_dynamic = GenericACPProvider(cfg_dynamic)
+    assert provider_dynamic.has_fixed_models is False
+    assert provider_dynamic.available_models == []

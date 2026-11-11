@@ -58,6 +58,27 @@ async def test_http_provider_model_discovery():
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_http_provider_fixed_models_bypasses_discovery():
+    """Verify get_models returns only fixed models without querying upstream /models."""
+    cfg = OpenAIProviderConfig(
+        id="wusrouter",
+        base_url="https://wusrouter.com/v1",
+        api_key="sk-test",
+        models=["wusrouter/qwen3.8-flash:free"],
+    )
+    provider = OpenAIHttpProvider(cfg)
+    assert provider.has_fixed_models is True
+
+    # Note: no respx mock route defined for /models. If get_models attempts to query /models,
+    # respx will raise an unmocked request error.
+    models = await provider.get_models()
+    assert len(models) == 1
+    assert models[0].id == "wusrouter/qwen3.8-flash:free"
+    assert models[0].owned_by == "openai:wusrouter"
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_http_provider_complete_chat():
     """Verify non-streaming chat completions are correctly deserialized."""
     cfg = OpenAIProviderConfig(

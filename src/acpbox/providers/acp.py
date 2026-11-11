@@ -37,6 +37,7 @@ class GenericACPProvider:
         self.proc: Optional[asyncio.subprocess.Process] = None
         self.session_id: Optional[str] = None
         self.current_model: Optional[str] = None
+        self.has_fixed_models: bool = bool(config.models)
         self.available_models: List[str] = list(config.models)
 
         self._req_counter = 0
@@ -97,27 +98,29 @@ class GenericACPProvider:
         self.session_id = result.get("sessionId")
         self.current_model = result.get("models", {}).get("currentModelId")
 
-        # Extract available models if provided by agent (agy format: models.availableModels)
-        models_data = result.get("models", {}).get("availableModels", [])
-        if models_data:
-            discovered = [m.get("modelId") for m in models_data if "modelId" in m]
-            for dm in discovered:
-                if dm not in self.available_models:
-                    self.available_models.append(dm)
-        else:
-            # Extract available models if provided by agent (opencode format: configOptions with id=='model')
-            config_options = result.get("configOptions", [])
-            for opt in config_options:
-                if opt.get("id") == "model":
-                    if not self.current_model and opt.get("currentValue"):
-                        self.current_model = opt.get("currentValue")
-                    for option in opt.get("options", []):
-                        val = option.get("value")
-                        if val and val not in self.available_models:
-                            self.available_models.append(val)
+        # If models list was explicitly defined in config, do not append dynamically discovered models
+        if not self.has_fixed_models:
+            # Extract available models if provided by agent (agy format: models.availableModels)
+            models_data = result.get("models", {}).get("availableModels", [])
+            if models_data:
+                discovered = [m.get("modelId") for m in models_data if "modelId" in m]
+                for dm in discovered:
+                    if dm not in self.available_models:
+                        self.available_models.append(dm)
+            else:
+                # Extract available models if provided by agent (opencode format: configOptions with id=='model')
+                config_options = result.get("configOptions", [])
+                for opt in config_options:
+                    if opt.get("id") == "model":
+                        if not self.current_model and opt.get("currentValue"):
+                            self.current_model = opt.get("currentValue")
+                        for option in opt.get("options", []):
+                            val = option.get("value")
+                            if val and val not in self.available_models:
+                                self.available_models.append(val)
 
-        if not self.available_models:
-            self.available_models = ["default"]
+            if not self.available_models:
+                self.available_models = ["default"]
 
     async def _ensure_model(self, model: Optional[str]) -> None:
         """Switches the ACP session model if different from the currently active model."""
