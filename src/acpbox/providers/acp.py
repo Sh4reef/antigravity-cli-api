@@ -104,17 +104,17 @@ class GenericACPProvider:
             for dm in discovered:
                 if dm not in self.available_models:
                     self.available_models.append(dm)
-
-        # Extract available models if provided by agent (opencode format: configOptions with id=='model')
-        config_options = result.get("configOptions", [])
-        for opt in config_options:
-            if opt.get("id") == "model":
-                if not self.current_model and opt.get("currentValue"):
-                    self.current_model = opt.get("currentValue")
-                for option in opt.get("options", []):
-                    val = option.get("value")
-                    if val and val not in self.available_models:
-                        self.available_models.append(val)
+        else:
+            # Extract available models if provided by agent (opencode format: configOptions with id=='model')
+            config_options = result.get("configOptions", [])
+            for opt in config_options:
+                if opt.get("id") == "model":
+                    if not self.current_model and opt.get("currentValue"):
+                        self.current_model = opt.get("currentValue")
+                    for option in opt.get("options", []):
+                        val = option.get("value")
+                        if val and val not in self.available_models:
+                            self.available_models.append(val)
 
         if not self.available_models:
             self.available_models = ["default"]

@@ -55,7 +55,7 @@ def test_daemon_lifecycle_background_run(tmp_path: Path):
         pid_file=pid_file,
         host="127.0.0.1",
         port=port,
-        healthcheck_timeout=6.0,
+        healthcheck_timeout=15.0,
     )
 
     assert success is True

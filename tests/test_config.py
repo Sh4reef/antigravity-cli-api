@@ -89,3 +89,34 @@ def test_load_config_with_custom_settings():
     assert cfg.acp_providers[0].agent == "special-agent"
     assert cfg.acp_providers[0].disable_telemetry is False
     assert "--disable-telemetry" not in cfg.acp_providers[0].command
+
+
+def test_find_config_file_explicit_and_env(tmp_path, monkeypatch):
+    """Verify find_config_file resolves explicit path, env var, or local file."""
+    from acpbox.config import find_config_file
+
+    # 1. Explicit path
+    test_yaml = tmp_path / "custom.yaml"
+    test_yaml.write_text("gateway:\n  port: 7000\n", encoding="utf-8")
+    assert find_config_file(str(test_yaml)) == str(test_yaml.resolve())
+
+    # 2. Env variable
+    monkeypatch.setenv("AGY_ACPBOX_CONFIG", str(test_yaml))
+    assert find_config_file() == str(test_yaml.resolve())
+
+    # 3. Nonexistent explicit path returns None if no env/local
+    monkeypatch.delenv("AGY_ACPBOX_CONFIG")
+    assert find_config_file("/non/existent/path.yaml") is None
+
+
+def test_load_config_auto_discover(monkeypatch, tmp_path):
+    """Verify load_config(auto_discover=True) loads config via env discovery."""
+    cfg_file = tmp_path / "env_discovered.yaml"
+    cfg_file.write_text(
+        "gateway:\n  port: 8088\nacp_providers:\n  - id: custom-acp\n    command: ['dummy']\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AGY_ACPBOX_CONFIG", str(cfg_file))
+    cfg = load_config(auto_discover=True)
+    assert cfg.gateway.port == 8088
+    assert cfg.acp_providers[0].id == "custom-acp"

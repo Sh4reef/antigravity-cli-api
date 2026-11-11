@@ -88,7 +88,7 @@ def remove_pid(pid_file: Path) -> None:
         pass
 
 
-def check_health(host: str, port: int, timeout: float = 1.0) -> Tuple[bool, Optional[Dict[str, Any]]]:
+def check_health(host: str, port: int, timeout: float = 5.0) -> Tuple[bool, Optional[Dict[str, Any]]]:
     """Query /health endpoint to check server responsiveness."""
     # When host is 0.0.0.0 or 127.0.0.1, query 127.0.0.1
     target_host = "127.0.0.1" if host in ("0.0.0.0", "::") else host
@@ -111,7 +111,7 @@ def start_daemon(
     pid_file: Path,
     host: str,
     port: int,
-    healthcheck_timeout: float = 6.0,
+    healthcheck_timeout: float = 15.0,
 ) -> Tuple[bool, str, Optional[int]]:
     """Spawn agy-acpbox in background as a detached daemon process.
     
@@ -162,7 +162,7 @@ def start_daemon(
                     pass
             return False, f"Process exited prematurely.\nLog tail:\n{err_snippet}", None
 
-        ok, _ = check_health(host=host, port=port, timeout=0.8)
+        ok, _ = check_health(host=host, port=port, timeout=3.0)
         if ok:
             started = True
             break
@@ -231,7 +231,7 @@ def check_status(pid_file: Path, host: str, port: int) -> Dict[str, Any]:
             "message": "PID file exists but process is not running.",
         }
 
-    healthy, health_data = check_health(host=host, port=port, timeout=1.0)
+    healthy, health_data = check_health(host=host, port=port, timeout=5.0)
     return {
         "status": "RUNNING" if healthy else "UNRESPONSIVE",
         "running": True,

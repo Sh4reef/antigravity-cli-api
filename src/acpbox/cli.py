@@ -13,7 +13,7 @@ from acpbox.autostart import (
     uninstall_service,
 )
 from acpbox.backend import AgyACPBackend
-from acpbox.config import Settings, load_config
+from acpbox.config import Settings, find_config_file, load_config
 from acpbox.daemon import (
     check_status,
     get_default_log_path,
@@ -191,6 +191,9 @@ def main(
             typer.echo(f"Path:      {st['path']}")
         raise typer.Exit(code=0 if st["installed"] else 1)
 
+    # Auto-discover config file if not explicitly given
+    effective_config_path = find_config_file(str(config) if config else None)
+
     # Mode 6: Background daemon spawn
     if background:
         forward_args = _build_forward_args(
@@ -204,7 +207,7 @@ def main(
             log_level=log_level,
             pid_file=pid_file,
             log_file=log_file,
-            config_file=config,
+            config_file=Path(effective_config_path) if effective_config_path else None,
         )
         typer.echo(f"Starting agy-acpbox in background on http://{host}:{port}...")
         success, msg, pid = start_daemon(
@@ -227,8 +230,8 @@ def main(
             raise typer.Exit(code=1)
 
     # Mode 7: Foreground Server (or internal worker process)
-    if config:
-        gateway_config = load_config(str(config))
+    if effective_config_path:
+        gateway_config = load_config(effective_config_path)
         # CLI options override config defaults if explicitly given
         target_host = host if host != "127.0.0.1" else gateway_config.gateway.host
         target_port = port if port != 8001 else gateway_config.gateway.port

@@ -90,7 +90,12 @@ class ModelRouter:
         if delimiter:
             prefix, sub_model = model.split(delimiter, 1)
             if prefix in self.providers:
-                return self.providers[prefix], sub_model
+                target_p = self.providers[prefix]
+                avail = getattr(target_p, "available_models", [])
+                # If full model string is in provider's available models (e.g. wusrouter/qwen...), keep it
+                if model in avail:
+                    return target_p, model
+                return target_p, sub_model
 
         # Tier 3: Unique Provider Catalog Match
         matching_providers = []
@@ -124,29 +129,44 @@ class ModelRouter:
         )
 
     async def list_models(self) -> List[ModelItem]:
-        """Aggregates models from all providers and virtual models into a unified list."""
+        """Aggregates models from all providers and virtual models into a unified, deduplicated list."""
         all_models: List[ModelItem] = []
         seen_ids = set()
 
-        # 1. Virtual models
+        # 1. Virtual models (clean aliases)
         for v_name, v_cfg in self.virtual_models.items():
-            all_models.append(ModelItem(id=v_name, owned_by=f"virtual:{v_cfg.provider}"))
-            seen_ids.add(v_name)
+            if v_name not in seen_ids:
+                all_models.append(ModelItem(id=v_name, owned_by=f"virtual:{v_cfg.provider}"))
+                seen_ids.add(v_name)
 
-        # 2. Providers' models
+        # 2. Default provider models (emitted cleanly without artificial prefix)
+        default_provider = self.providers.get(self.default_provider_id)
+        if default_provider:
+            try:
+                def_models = await default_provider.get_models()
+                for m in def_models:
+                    if m.id not in seen_ids:
+                        all_models.append(ModelItem(id=m.id, owned_by=m.owned_by))
+                        seen_ids.add(m.id)
+            except Exception:
+                pass
+
+        # 3. Non-default providers' models (namespaced without double-prefixing)
         for p_id, provider in self.providers.items():
+            if p_id == self.default_provider_id:
+                continue
             try:
                 p_models = await provider.get_models()
                 for m in p_models:
-                    # Provide namespaced ID and bare ID if unique
-                    namespaced_id = f"{p_id}/{m.id}"
-                    if namespaced_id not in seen_ids:
-                        all_models.append(ModelItem(id=namespaced_id, owned_by=m.owned_by))
-                        seen_ids.add(namespaced_id)
+                    # If model is already prefixed with p_id/ or contains another namespace slash, preserve it
+                    if m.id.startswith(f"{p_id}/") or "/" in m.id:
+                        canonical_id = m.id
+                    else:
+                        canonical_id = f"{p_id}/{m.id}"
 
-                    if m.id not in seen_ids:
-                        all_models.append(m)
-                        seen_ids.add(m.id)
+                    if canonical_id not in seen_ids:
+                        all_models.append(ModelItem(id=canonical_id, owned_by=m.owned_by))
+                        seen_ids.add(canonical_id)
             except Exception:
                 continue
 
@@ -156,23 +176,26 @@ class ModelRouter:
         return all_models
 
     async def health(self) -> Dict[str, Any]:
-        """Gathers health status from all registered providers."""
+        """Gathers health status from all registered providers concurrently."""
         results: Dict[str, Any] = {}
         overall_healthy = False
 
-        for p_id, provider in self.providers.items():
-            try:
-                st = await provider.health()
-                results[p_id] = st.model_dump()
-                if st.healthy:
-                    overall_healthy = True
-            except Exception as e:
+        provider_ids = list(self.providers.keys())
+        tasks = [self.providers[p_id].health() for p_id in provider_ids]
+        statuses = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for p_id, res in zip(provider_ids, statuses):
+            if isinstance(res, Exception):
                 results[p_id] = {
                     "provider_id": p_id,
                     "healthy": False,
                     "status": "error",
-                    "details": {"error": str(e)},
+                    "details": {"error": str(res)},
                 }
+            else:
+                results[p_id] = res.model_dump()
+                if res.healthy:
+                    overall_healthy = True
 
         return {
             "status": "healthy" if overall_healthy else "unhealthy",

@@ -2,6 +2,7 @@
 
 import os
 import re
+import shutil
 from typing import Any, Dict, List, Optional
 import yaml
 from pydantic import BaseModel, Field
@@ -93,19 +94,56 @@ def expand_env_vars(content: str) -> str:
     return pattern.sub(_replace, content)
 
 
+def find_config_file(explicit_path: Optional[str] = None) -> Optional[str]:
+    """Finds configuration file by checking explicit path, env vars, cwd, and user config dir."""
+    if explicit_path:
+        if os.path.isfile(explicit_path):
+            return os.path.abspath(explicit_path)
+        return None
+
+    # 1. Environment variables
+    for env_key in ("AGY_ACPBOX_CONFIG", "ACPBOX_CONFIG", "ACPBOX_CONFIG_FILE"):
+        val = os.environ.get(env_key)
+        if val and os.path.isfile(val):
+            return os.path.abspath(val)
+
+    # 2. Current working directory
+    for fname in ("config.yaml", "config.yml"):
+        candidate = os.path.join(os.getcwd(), fname)
+        if os.path.isfile(candidate):
+            return os.path.abspath(candidate)
+
+    # 3. User config directory
+    user_config = os.path.expanduser("~/.config/agy-acpbox/config.yaml")
+    if os.path.isfile(user_config):
+        return os.path.abspath(user_config)
+
+    return None
+
+
 def load_config(
-    path: Optional[str] = None, settings: Optional[Settings] = None
+    path: Optional[str] = None,
+    settings: Optional[Settings] = None,
+    auto_discover: bool = False,
 ) -> GatewayConfig:
-    """Loads GatewayConfig from YAML file (if provided) or builds default from Settings."""
-    if path and os.path.isfile(path):
-        with open(path, "r", encoding="utf-8") as f:
+    """Loads GatewayConfig from YAML file (if provided or discovered) or builds default from Settings."""
+    resolved_path = None
+    if path:
+        resolved_path = find_config_file(path)
+    elif settings and settings.config_file:
+        resolved_path = find_config_file(settings.config_file)
+    elif auto_discover:
+        resolved_path = find_config_file()
+
+    if resolved_path and os.path.isfile(resolved_path):
+        with open(resolved_path, "r", encoding="utf-8") as f:
             raw_content = f.read()
 
         expanded_content = expand_env_vars(raw_content)
         data = yaml.safe_load(expanded_content) or {}
         return GatewayConfig.model_validate(data)
 
-    # Fallback to single-provider settings (defaulting to agy acp)
+    # Fallback to single/default provider settings (defaulting to agy acp)
     s = settings or Settings()
     base_cmd = ["agy", "acp", "--stdio"]
     if s.disable_telemetry:

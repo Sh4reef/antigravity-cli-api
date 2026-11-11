@@ -126,9 +126,10 @@ async def test_router_list_models_aggregation():
     model_ids = [m.id for m in models]
     assert "my-fast" in model_ids
     assert "wusrouter/qwen" in model_ids
-    assert "qwen" in model_ids
-    assert "agy/gemini" in model_ids
     assert "gemini" in model_ids
+    assert "agy/gemini" not in model_ids
+    # Ensure all model IDs are unique (zero duplicates)
+    assert len(model_ids) == len(set(model_ids))
 
 
 @pytest.mark.asyncio

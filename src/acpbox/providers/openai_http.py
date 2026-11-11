@@ -304,7 +304,7 @@ class OpenAIHttpProvider:
         latency_ms = None
 
         try:
-            resp = await client.get("/models")
+            resp = await client.get("/models", timeout=4.0)
             latency_ms = round((time.perf_counter() - t0) * 1000, 2)
             if resp.status_code in (200, 401, 403):
                 # Server responded (even if auth is checked per-route)
