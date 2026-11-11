@@ -1,0 +1,50 @@
+# agy-acpbox Universal Multi-Provider Configuration
+gateway:
+  host: "127.0.0.1"
+  port: 8001
+  default_provider: "agy"
+  log_level: "info"
+
+acp_providers:
+  - id: "agy"
+    command: ["agy", "acp", "--stdio"]
+    disable_telemetry: true
+    dangerously_skip_permissions: true
+    models:
+      - "gemini-3.8-flash-high"
+      - "gemini-3.8-flash-medium"
+      - "claude-sonnet-4-6"
+
+  - id: "opencode"
+    command: ["opencode", "acp"]
+    models:
+      - "default"
+
+openai_providers:
+  - id: "wusrouter"
+    base_url: "https://wusrouter.com/v1"
+    api_key: "${WUSROUTER_API_KEY:-sk-ws-a21ab55a1fa24eaea1b66eae78be7ebf400a056221c05449b5e7a1d371919de5}"
+    discover_models: true
+    default_model: "wusrouter/qwen3.8-flash:free"
+    timeout: 60.0
+
+  - id: "logfare"
+    base_url: "https://logfare.ai/v1"
+    api_key: "${LOGFARE_API_KEY:-lfu_ZVox-kb49mhC_IFODKHcrbbhJChlWxAo}"
+    discover_models: true
+    default_model: "glm-5.3-flash"
+    timeout: 60.0
+
+virtual_models:
+  "fast-free":
+    provider: "wusrouter"
+    upstream_model: "wusrouter/qwen3.8-flash:free"
+  "reasoning-flash":
+    provider: "logfare"
+    upstream_model: "glm-5.3-flash"
+  "agy-high":
+    provider: "agy"
+    upstream_model: "gemini-3.8-flash-high"
+  "opencode-default":
+    provider: "opencode"
+    upstream_model: "default"

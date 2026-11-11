@@ -36,18 +36,21 @@ uv sync
 
 ## Usage
 
-### Mode 1: Expose `agy acp` as OpenAI-Compatible HTTP Server
+### Mode 1: Expose ACP & External OpenAI Providers as Unified Gateway
 
-Start the gateway server on port 8000 (telemetry disabled by default):
+Start the gateway server on port 8001 (telemetry disabled by default):
 
 ```bash
-# Foreground execution
-uv run agy-acpbox --host 127.0.0.1 --port 8000
+# Start with multi-provider config file (routes across agy, opencode, wusrouter, logfare)
+uv run agy-acpbox --config config.yaml
+
+# Foreground execution (defaulting to agy acp on port 8001)
+uv run agy-acpbox --host 127.0.0.1 --port 8001
 
 # Background execution (detached daemon)
-uv run agy-acpbox -d --port 8000
+uv run agy-acpbox -d --port 8001
 
-# Check running daemon status
+# Check running daemon status and provider breakdown
 uv run agy-acpbox --status
 
 # Stop background daemon
@@ -60,7 +63,7 @@ Run `agy-acpbox` as a managed user-level service that automatically starts on sy
 
 ```bash
 # Install and enable auto-start on boot/login
-uv run agy-acpbox --install-autostart --port 8000
+uv run agy-acpbox --install-autostart --port 8001 --config config.yaml
 
 # Check auto-start service status
 uv run agy-acpbox --autostart-status
@@ -74,40 +77,53 @@ uv run agy-acpbox --uninstall-autostart
 > - **Linux:** Uses `systemd --user` via `~/.config/systemd/user/agy-acpbox.service`
 
 
-Now any OpenAI client can connect to `http://127.0.0.1:8000/v1`:
+Now any OpenAI client can connect to `http://127.0.0.1:8001/v1`:
 
-#### Test with cURL (Non-Streaming):
+#### Test with cURL (Virtual Model Alias):
 ```bash
-curl http://127.0.0.1:8000/v1/chat/completions \
+curl http://127.0.0.1:8001/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gemini-3.8-flash-high",
+    "model": "fast-free",
     "messages": [{"role": "user", "content": "Explain binary search in one sentence."}]
   }'
 ```
 
-#### Test with cURL (Streaming SSE):
+#### Test with cURL (Streaming SSE from Logfare / ACP with Reasoning):
 ```bash
-curl http://127.0.0.1:8000/v1/chat/completions \
+curl http://127.0.0.1:8001/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gemini-3.8-flash-high",
+    "model": "reasoning-flash",
     "messages": [{"role": "user", "content": "Write a python quicksort function."}],
     "stream": true
   }'
 ```
 
-#### List Available Models:
+#### List Available Models (Aggregated from all providers):
 ```bash
-curl http://127.0.0.1:8000/v1/models
+curl http://127.0.0.1:8001/v1/models
+```
+
+#### Check Multi-Provider Health Status:
+```bash
+curl http://127.0.0.1:8001/health
 ```
 
 #### Use with Python `openai` SDK:
 ```python
 from openai import OpenAI
 
-client = OpenAI(base_url="http://127.0.0.1:8000/v1", api_key="dummy")
+client = OpenAI(base_url="http://127.0.0.1:8001/v1", api_key="dummy")
 
+# Query WusRouter via alias
+res = client.chat.completions.create(
+    model="fast-free",
+    messages=[{"role": "user", "content": "Hello!"}],
+)
+print(res.choices[0].message.content)
+
+# Query Antigravity ACP via namespaced model
 response = client.chat.completions.create(
     model="gemini-3.8-flash-high",
     messages=[{"role": "user", "content": "Hello agy acp!"}],
